@@ -1,5 +1,5 @@
 # ==============================
-# 必须第一条 Streamlit 命令
+# Streamlit必须第一条
 # ==============================
 import streamlit as st
 
@@ -10,22 +10,21 @@ st.set_page_config(
 )
 
 # ==============================
-# 其它库导入
+# 导入库
 # ==============================
 import os
 import joblib
 import pandas as pd
 import shap
 import numpy as np
-import streamlit.components.v1 as components
 import matplotlib
-
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import streamlit.components.v1 as components
 
 
 # ==============================
-# >>> 新的预测因子
+# 预测变量
 # ==============================
 FEATURES = [
     "sz1","sz2","sz3","sz4","sz5",
@@ -37,79 +36,45 @@ FEATURES = [
 
 
 # ==============================
-# SHAP交互图函数
+# SHAP显示函数
 # ==============================
-def st_shap(plot, height=180):
+def st_shap(plot, height=200):
     shap_html = f"<head>{shap.getjs()}</head><body>{plot.html()}</body>"
-    components.html(shap_html, height=height, scrolling=True)
+    components.html(shap_html, height=height)
 
 
 # ==============================
-# 模型路径
-# ==============================
-BASE_DIR = os.path.dirname(__file__)
-MODEL_PATH_1 = os.path.join(BASE_DIR, "best_model.pkl")
-MODEL_PATH_2 = os.path.join(BASE_DIR, "model.pkl")
-
-
-# ==============================
-# 模型加载（缓存）
+# 加载模型（缓存）
 # ==============================
 @st.cache_resource
 def load_model():
-
-    if os.path.exists(MODEL_PATH_1):
-        return joblib.load(MODEL_PATH_1)
-    elif os.path.exists(MODEL_PATH_2):
-        return joblib.load(MODEL_PATH_2)
-    else:
-        raise FileNotFoundError("未找到 best_model.pkl 或 model.pkl")
+    return joblib.load("best_model.pkl")
 
 
 model = load_model()
 
 
 # ==============================
-# 页面标题
+# 标题
 # ==============================
-st.title("🏥 Diagnosis Prediction System")
-
-
-# ==============================
-# Pipeline处理（兼容scaler/pipeline）
-# ==============================
-def process_pipeline(model, df):
-
-    shap_model = model
-    X = df.copy()
-
-    if hasattr(model, "named_steps"):
-        steps = list(model.named_steps.keys())
-
-        shap_model = model.named_steps[steps[-1]]
-
-        if len(steps) > 1:
-            preprocessor = model[:-1]
-            X = preprocessor.transform(df)
-
-    return shap_model, X
+st.title("🏥 Clinical Diagnosis Prediction System")
 
 
 # ==============================
-# 页面Tabs
+# 页面Tab
 # ==============================
-tab1, tab2 = st.tabs(["📝 Single Prediction", "📂 Batch Prediction"])
+tab1, tab2 = st.tabs(["Single Prediction", "Batch Prediction"])
 
 
-# =================================================
+# ==============================
 # 单例预测
-# =================================================
+# ==============================
 with tab1:
 
     st.subheader("Single Case Prediction")
 
-    input_data = {}
     cols = st.columns(3)
+    input_data = {}
 
     for i, feature in enumerate(FEATURES):
         with cols[i % 3]:
@@ -119,108 +84,91 @@ with tab1:
 
         input_df = pd.DataFrame([input_data])
 
-        try:
-            prob = model.predict_proba(input_df)[0][1]
+        prob = model.predict_proba(input_df)[0][1]
 
-            st.divider()
-            c1, c2 = st.columns([1, 2])
+        st.divider()
 
-            # ===== 预测结果 =====
-            with c1:
-                st.metric("Risk Probability", f"{prob:.2%}")
+        c1, c2 = st.columns([1,2])
 
-                if prob > 0.5:
-                    st.error("High Risk")
-                else:
-                    st.success("Low Risk")
+        with c1:
 
-            # ===== SHAP解释 =====
-            with c2:
+            st.metric("Risk Probability", f"{prob:.2%}")
 
-                st.subheader("SHAP Model Explanation")
+            if prob > 0.5:
+                st.error("High Risk")
+            else:
+                st.success("Low Risk")
 
-                shap_model, X_for_shap = process_pipeline(model, input_df)
+        with c2:
 
-                explainer = shap.TreeExplainer(shap_model)
-                shap_values = explainer.shap_values(X_for_shap)
+            st.subheader("SHAP Explanation")
 
-                if isinstance(shap_values, list):
-                    shap_values = shap_values[1]
-                    base_value = explainer.expected_value[1]
-                else:
-                    base_value = explainer.expected_value
+            explainer = shap.TreeExplainer(model)
+            shap_values = explainer.shap_values(input_df)
 
-                if isinstance(base_value, np.ndarray):
-                    base_value = base_value[0]
+            if isinstance(shap_values, list):
+                shap_values = shap_values[1]
+                base_value = explainer.expected_value[1]
+            else:
+                base_value = explainer.expected_value
 
-                # Waterfall图
-                fig = plt.figure(figsize=(10, 5))
+            fig = plt.figure(figsize=(10,5))
 
-                explanation = shap.Explanation(
-                    values=shap_values[0],
-                    base_values=base_value,
-                    data=input_df.iloc[0],
-                    feature_names=input_df.columns
-                )
+            explanation = shap.Explanation(
+                values=shap_values[0],
+                base_values=base_value,
+                data=input_df.iloc[0],
+                feature_names=input_df.columns
+            )
 
-                shap.plots.waterfall(explanation, show=False)
-                st.pyplot(fig)
-                plt.close(fig)
+            shap.plots.waterfall(explanation, show=False)
 
-                # Force Plot
-                force_plot = shap.force_plot(
-                    base_value,
-                    shap_values[0],
-                    input_df.iloc[0],
-                    matplotlib=False
-                )
+            st.pyplot(fig)
 
-                st_shap(force_plot)
+            force_plot = shap.force_plot(
+                base_value,
+                shap_values[0],
+                input_df.iloc[0],
+                matplotlib=False
+            )
 
-        except Exception as e:
-            st.error("Prediction failed")
-            st.text(str(e))
+            st_shap(force_plot)
 
 
-# =================================================
+# ==============================
 # 批量预测
-# =================================================
+# ==============================
 with tab2:
 
     st.subheader("Batch Prediction")
 
-    uploaded_file = st.file_uploader(
-        "Upload Excel or CSV",
-        type=["xlsx", "csv"]
-    )
+    file = st.file_uploader("Upload CSV / Excel", type=["csv","xlsx"])
 
-    if uploaded_file:
+    if file:
 
-        if uploaded_file.name.endswith(".csv"):
-            df = pd.read_csv(uploaded_file)
+        if file.name.endswith("csv"):
+            df = pd.read_csv(file)
         else:
-            df = pd.read_excel(uploaded_file)
+            df = pd.read_excel(file)
 
-        st.write("Data Preview:")
+        st.write("Data Preview")
         st.dataframe(df.head())
 
-        if st.button("Run Batch Prediction"):
+        if st.button("Run Prediction"):
 
-            try:
-                probs = model.predict_proba(df)[:, 1]
-                df["Prediction_Probability"] = probs
+            probs = model.predict_proba(df)[:,1]
 
-                st.success("Prediction Completed")
-                st.dataframe(df)
+            df["Prediction_Probability"] = probs
 
-                csv = df.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    "Download Result CSV",
-                    csv,
-                    "prediction_results.csv",
-                    "text/csv"
-                )
+            st.success("Prediction Completed")
 
-            except Exception as e:
-                st.error("Batch prediction failed")
-                st.text(str(e))
+            st.dataframe(df)
+
+            csv = df.to_csv(index=False).encode("utf-8")
+
+            st.download_button(
+                "Download Result",
+                csv,
+                "prediction_results.csv",
+                "text/csv"
+            )
